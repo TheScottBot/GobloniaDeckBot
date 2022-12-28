@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -130,6 +132,8 @@ func GetUserCards(deckID string) (string, string) {
 	return userDeck.Cards[0].Suit, userDeck.Cards[0].Value
 }
 
+var Hand []Card
+
 func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == BotId {
 		fmt.Println("author: ", m.Author.ID, " \n BotId: ", BotId, "\nmessge: ", m.Content)
@@ -155,10 +159,98 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 		suit, value := GetUserCards(userDeck.DeckID)
-		_, err := s.ChannelMessageSend(m.ChannelID, "Your card is: "+suit+" "+value)
+		card := Card{
+			Suit:  suit,
+			Value: value,
+		}
+
+		Hand = append(Hand, card)
+
+		_, err := s.ChannelMessageSend(m.ChannelID, "Your have drawn "+strconv.Itoa(len(Hand))+" cards")
 		if err != nil {
 			fmt.Println("error ", err)
 		}
+	}
+	if m.Content == "??PM" {
+		PM(s, m)
+	}
+	if m.Content == "??FinalHand" {
+		handList := HandOrder("1 , 2")
+		output := ChooseHand(handList)
+		_, err := s.ChannelMessageSend(m.ChannelID, output)
+		if err != nil {
+			fmt.Println("error ", err)
+		}
+	}
+}
+
+var ChosenHand []Card
+
+func ChooseHand(cards []int) string {
+	if cards != nil {
+		for _, element := range cards {
+			ChosenHand = append(ChosenHand, Hand[element])
+		}
+		Hand = nil
+	}
+
+	var stringBuilder strings.Builder
+	for _, element := range ChosenHand {
+		stringBuilder.WriteString("You revealed: " + element.Suit + " " + element.Value + "\n")
+	}
+	ChosenHand = nil
+	return stringBuilder.String()
+}
+
+func HandOrder(cardsDelimitedList string) []int {
+	inputSliced := strings.Split(cardsDelimitedList, ",")
+	converted := make([]int, len(inputSliced))
+	for index, value := range inputSliced {
+		output, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			fmt.Println("Theres a fucking error, mate: " + err.Error())
+		}
+		converted[index] = output
+	}
+	return converted
+}
+
+func PM(s *discordgo.Session, m *discordgo.MessageCreate) {
+	var stringBuilder strings.Builder
+	for index, element := range Hand {
+		stringBuilder.WriteString("Your card is " + element.Suit + " " + element.Value + ". Card reference number = " + strconv.Itoa(index) + "\n")
+	}
+	// We create the private channel with the user who sent the message.
+	channel, err := s.UserChannelCreate(m.Author.ID)
+	if err != nil {
+		// If an error occurred, we failed to create the channel.
+		//
+		// Some common causes are:
+		// 1. We don't share a server with the user (not possible here).
+		// 2. We opened enough DM channels quickly enough for Discord to
+		//    label us as abusing the endpoint, blocking us from opening
+		//    new ones.
+		fmt.Println("error creating channel:", err)
+		s.ChannelMessageSend(
+			m.ChannelID,
+			"Something went wrong while sending the DM!",
+		)
+		return
+	}
+	// Then we send the message through the channel we created.
+	_, err = s.ChannelMessageSend(channel.ID, stringBuilder.String())
+	if err != nil {
+		// If an error occurred, we failed to send the message.
+		//
+		// It may occur either when we do not share a server with the
+		// user (highly unlikely as we just received a message) or
+		// the user disabled DM in their settings (more likely).
+		fmt.Println("error sending DM message:", err)
+		s.ChannelMessageSend(
+			m.ChannelID,
+			"Failed to send you a DM. "+
+				"Did you disable DM in your privacy settings?",
+		)
 	}
 }
 
