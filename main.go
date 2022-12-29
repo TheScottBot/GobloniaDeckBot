@@ -31,7 +31,6 @@ type Card struct {
 }
 
 var client *http.Client
-var deck Deck
 var Token = ""
 var BotPrefix = "?"
 
@@ -121,6 +120,19 @@ func GetUserCards(deckID string) (string, string) {
 	return userDeck.Cards[0].Suit, userDeck.Cards[0].Value
 }
 
+func GetUserCardsPointer(theDeck *Deck) (string, string) {
+	fmt.Println("INSIDE GetUserCards")
+	url := "https://www.deckofcardsapi.com/api/deck/" + theDeck.DeckID + "/draw/?count=1"
+
+	err := GetJson(url, theDeck)
+	if err != nil {
+		fmt.Printf("error getting deck: %s\n", err.Error())
+	}
+
+	fmt.Printf("User's card is: %s\n", theDeck.Cards)
+	return theDeck.Cards[0].Suit, theDeck.Cards[0].Value
+}
+
 var Hand []Card
 
 func messageHandler(session *discordgo.Session, message *discordgo.MessageCreate) {
@@ -141,64 +153,84 @@ func messageHandler(session *discordgo.Session, message *discordgo.MessageCreate
 	HandleFinalHand(message, session)
 }
 
-func HandleFinalHand(m *discordgo.MessageCreate, s *discordgo.Session) {
-	if strings.HasPrefix(m.Content, "??FinalHand") {
-
-		handList := HandOrder(StupidFuncNeedToRemove(m.Content))
-		output := ChooseHand(handList)
-		_, err := s.ChannelMessageSend(m.ChannelID, output)
-		if err != nil {
-			fmt.Println("error ", err)
+func HandleFinalHand(message *discordgo.MessageCreate, session *discordgo.Session) {
+	if strings.HasPrefix(message.Content, "??FinalHand") {
+		if _, exists := UsersDecks[message.Author.ID]; exists {
+			handList := HandOrder(StupidFuncNeedToRemove(message.Content))
+			output := ChooseHand(handList)
+			_, err := session.ChannelMessageSend(message.ChannelID, output)
+			if err != nil {
+				fmt.Println("error ", err)
+			}
 		}
 	}
 }
 
-func HandleDraw(m *discordgo.MessageCreate, s *discordgo.Session) {
-	if strings.HasPrefix(m.Content, "??Draw") {
-		var howMany = 1
+func HandleDraw(message *discordgo.MessageCreate, session *discordgo.Session) {
+	if strings.HasPrefix(message.Content, "??Draw") {
+		if _, exists := UsersDecks[message.Author.ID]; exists {
+			var howMany = 1
 
-		leng := len(m.Content)
+			leng := len(message.Content)
 
-		fmt.Println("Length = " + strconv.Itoa(leng))
+			fmt.Println("Length = " + strconv.Itoa(leng))
 
-		if len(m.Content) > 6 {
-			howMany, _ = strconv.Atoi(string(m.Content[6]))
-		}
-
-		fmt.Println("users deck: ", userDeck.DeckID)
-		if userDeck.DeckID == "" {
-			return
-		}
-
-		for i := 0; i < howMany; i++ {
-			suit, value := GetUserCards(userDeck.DeckID)
-			card := Card{
-				Suit:  suit,
-				Value: value,
+			if len(message.Content) > 6 {
+				howMany, _ = strconv.Atoi(string(message.Content[6]))
 			}
 
-			Hand = append(Hand, card)
-		}
+			fmt.Println("users deck: ", UsersDecks[message.Author.ID].DeckID)
+			if UsersDecks[message.Author.ID].DeckID == "" {
+				return
+			}
 
-		_, err := s.ChannelMessageSend(m.ChannelID, "Your have drawn "+strconv.Itoa(len(Hand))+" cards")
-		if err != nil {
-			fmt.Println("error ", err)
+			for i := 0; i < howMany; i++ {
+				suit, value := GetUserCardsPointer(UsersDecks[message.Author.ID])
+				card := Card{
+					Suit:  suit,
+					Value: value,
+				}
+
+				Hand = append(Hand, card)
+			}
+
+			_, err := session.ChannelMessageSend(message.ChannelID, "Your have drawn "+strconv.Itoa(len(Hand))+" cards")
+			if err != nil {
+				fmt.Println("error ", err)
+			}
+		} else {
+			fmt.Println("You don't have a deck to draw from. Use ??NewDeck first")
 		}
 	}
 }
 
-var UsersDecks map[string]*Deck
+var UsersHandP = make(map[string][]Card)
+var UsersDecks = make(map[string]*Deck)
 
 func HandleNewDeck(message *discordgo.MessageCreate, session *discordgo.Session) {
 	if message.Content == "??NewDeck" {
+		fmt.Println("INSIDE NEWDECK")
 		if value, exists := UsersDecks[message.Author.ID]; exists {
 			fmt.Println(value)
 			GetUserDeckPointer(UsersDecks[message.Author.ID])
-		}
-		GetUserDeck()
-		_, err := session.ChannelMessageSend(message.ChannelID, "Your new deck is ready, it's ID is: "+userDeck.DeckID)
-		if err != nil {
-			fmt.Println("error ", err)
+
+			// GetUserDeck()
+			_, err := session.ChannelMessageSend(message.ChannelID, "Your new deck is ready, it's ID is: "+UsersDecks[message.Author.ID].DeckID)
+			if err != nil {
+				fmt.Println("error ", err)
+			}
+		} else {
+			fmt.Println("IN THE ELSE")
+			newDeck := Deck{}
+			UsersDecks[message.Author.ID] = &newDeck
+
+			GetUserDeckPointer(UsersDecks[message.Author.ID])
+
+			// GetUserDeck()
+			_, err := session.ChannelMessageSend(message.ChannelID, "Your new deck is ready, it's ID is: "+UsersDecks[message.Author.ID].DeckID)
+			if err != nil {
+				fmt.Println("error ", err)
+			}
 		}
 	}
 }
