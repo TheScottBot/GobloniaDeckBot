@@ -32,7 +32,7 @@ type Card struct {
 
 var client *http.Client
 var Token = ""
-var BotPrefix = "?"
+var BotPrefix = "??"
 
 func GetJson(url string, target interface{}) error {
 	resp, err := client.Get(url)
@@ -92,12 +92,11 @@ func GetUserDeckPointer(theDeck *Deck) {
 	if err != nil {
 		fmt.Printf("error getting deck: %s\n", err.Error())
 	} else {
-		fmt.Printf("Deck id: %s\n", userDeck.DeckID)
+		fmt.Printf("Deck id: %s\n", theDeck.DeckID)
 	}
 }
 
 func GetUserCardsPointer(theDeck *Deck) (string, string) {
-	fmt.Println("INSIDE GetUserCards")
 	url := "https://www.deckofcardsapi.com/api/deck/" + theDeck.DeckID + "/draw/?count=1"
 
 	err := GetJson(url, theDeck)
@@ -105,7 +104,6 @@ func GetUserCardsPointer(theDeck *Deck) (string, string) {
 		fmt.Printf("error getting deck: %s\n", err.Error())
 	}
 
-	fmt.Printf("User's card is: %s\n", theDeck.Cards)
 	return theDeck.Cards[0].Suit, theDeck.Cards[0].Value
 }
 
@@ -113,11 +111,10 @@ var Hand []Card
 
 func messageHandler(session *discordgo.Session, message *discordgo.MessageCreate) {
 	if message.Author.ID == BotId {
-		fmt.Println("author: ", message.Author.ID, " \n BotId: ", BotId, "\nmessge: ", message.Content)
 		return
 	}
 
-	if message.Content == "??ping" {
+	if message.Content == BotPrefix+"ping" {
 		_, err := session.ChannelMessageSend(message.ChannelID, "pong")
 		if err != nil {
 			fmt.Println("error ", err)
@@ -130,7 +127,7 @@ func messageHandler(session *discordgo.Session, message *discordgo.MessageCreate
 }
 
 func HandleFinalHand(message *discordgo.MessageCreate, session *discordgo.Session) {
-	if strings.HasPrefix(message.Content, "??FinalHand") {
+	if strings.HasPrefix(message.Content, BotPrefix+"FinalHand") {
 		if _, exists := UsersDecks[message.Author.ID]; exists {
 			handList := HandOrder(StupidFuncNeedToRemove(message.Content))
 			output := ChooseHand(handList, message.Author.ID)
@@ -143,19 +140,14 @@ func HandleFinalHand(message *discordgo.MessageCreate, session *discordgo.Sessio
 }
 
 func HandleDraw(message *discordgo.MessageCreate, session *discordgo.Session) {
-	if strings.HasPrefix(message.Content, "??Draw") {
+	if strings.HasPrefix(message.Content, BotPrefix+"Draw") {
 		if _, exists := UsersDecks[message.Author.ID]; exists {
 			var howMany = 1
-
-			leng := len(message.Content)
-
-			fmt.Println("Length = " + strconv.Itoa(leng))
 
 			if len(message.Content) > 6 {
 				howMany, _ = strconv.Atoi(string(message.Content[6]))
 			}
 
-			fmt.Println("users deck: ", UsersDecks[message.Author.ID].DeckID)
 			if UsersDecks[message.Author.ID].DeckID == "" {
 				return
 			}
@@ -184,10 +176,8 @@ var UsersHandP = make(map[string][]Card)
 var UsersDecks = make(map[string]*Deck)
 
 func HandleNewDeck(message *discordgo.MessageCreate, session *discordgo.Session) {
-	if message.Content == "??NewDeck" {
-		fmt.Println("INSIDE NEWDECK")
-		if value, exists := UsersDecks[message.Author.ID]; exists {
-			fmt.Println(value)
+	if message.Content == BotPrefix+"NewDeck" {
+		if _, exists := UsersDecks[message.Author.ID]; exists {
 			GetUserDeckPointer(UsersDecks[message.Author.ID])
 
 			// GetUserDeck()
@@ -196,7 +186,6 @@ func HandleNewDeck(message *discordgo.MessageCreate, session *discordgo.Session)
 				fmt.Println("error ", err)
 			}
 		} else {
-			fmt.Println("IN THE ELSE")
 			newDeck := Deck{}
 			UsersDecks[message.Author.ID] = &newDeck
 
@@ -215,11 +204,9 @@ func StupidFuncNeedToRemove(original string) string {
 	var re = regexp.MustCompile(`(?i)(\d)`)
 
 	var stringBuilder strings.Builder
-	for i, match := range re.FindAllString(original, -1) {
+	for _, match := range re.FindAllString(original, -1) {
 		stringBuilder.WriteString(match + ",")
-		fmt.Println(match, "found at index", i)
 	}
-	fmt.Println("final built string " + stringBuilder.String())
 	return stringBuilder.String()
 }
 
@@ -228,7 +215,6 @@ var ChosenHand []Card
 func ChooseHand(cards []int, userID string) string {
 	if cards != nil {
 		for _, element := range cards {
-			fmt.Println("Element: " + strconv.Itoa(element))
 			ChosenHand = append(ChosenHand, UsersHandP[userID][element])
 		}
 		UsersHandP[userID] = nil
@@ -243,18 +229,14 @@ func ChooseHand(cards []int, userID string) string {
 }
 
 func HandOrder(cardsDelimitedList string) []int {
-	fmt.Println("Just endered HandOrder. CardsDelimitedList is: " + cardsDelimitedList)
 	cardsDelimitedList = cardsDelimitedList[:len(cardsDelimitedList)-1]
-	fmt.Println("Just fucked with string. CardsDelimitedList is: " + cardsDelimitedList)
 	inputSliced := strings.Split(cardsDelimitedList, ",")
 	converted := make([]int, len(inputSliced))
 	for index, value := range inputSliced {
-		fmt.Println(len(strings.TrimSpace(value)))
 		if len(strings.TrimSpace(value)) > 0 {
-			fmt.Println("Index: " + strconv.Itoa(index) + " Value: " + value)
 			output, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil {
-				fmt.Println("Theres a fucking error, mate: " + err.Error())
+				fmt.Println("Theres an error, mate: " + err.Error())
 			}
 			converted[index] = output
 		}
@@ -263,7 +245,7 @@ func HandOrder(cardsDelimitedList string) []int {
 }
 
 func HandlePM(session *discordgo.Session, message *discordgo.MessageCreate) {
-	if message.Content == "??PM" {
+	if message.Content == BotPrefix+"PM" {
 		var stringBuilder strings.Builder
 		for index, element := range UsersHandP[message.Author.ID] {
 			stringBuilder.WriteString("Your card is " + element.Suit + " " + element.Value + ". Card reference number = " + strconv.Itoa(index) + "\n")
@@ -303,35 +285,8 @@ func HandlePM(session *discordgo.Session, message *discordgo.MessageCreate) {
 	}
 }
 
-func ShitPointer(theDeck *Deck) {
-	fmt.Println(theDeck.DeckID)
-	theDeck.Remaining = 11
-}
-
 func main() {
 	client = &http.Client{Timeout: 10 * time.Second}
-
-	deckMap := make(map[string]*Deck)
-
-	tests := Deck{
-		DeckID: "one",
-	}
-
-	deckMap["ONE"] = &tests
-	q := deckMap["ONE"]
-
-	ShitPointer(q)
-
-	testss := Deck{
-		DeckID: "two",
-	}
-
-	deckMap["TWO"] = &testss
-
-	ShitPointer(&testss)
-
-	fmt.Println(deckMap["ONE"].DeckID)
-	fmt.Println(deckMap["ONE"].Remaining)
 
 	// https://www.deckofcardsapi.com/api/deck/<<deck_id>>/draw/?count=2
 	Start()
