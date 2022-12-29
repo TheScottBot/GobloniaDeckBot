@@ -85,17 +85,6 @@ func Start() {
 var userDeck Deck
 var userCard Card
 
-func GetUserDeck() {
-	url := "https://www.deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
-
-	err := GetJson(url, &userDeck)
-	if err != nil {
-		fmt.Printf("error getting deck: %s\n", err.Error())
-	} else {
-		fmt.Printf("Deck id: %s\n", userDeck.DeckID)
-	}
-}
-
 func GetUserDeckPointer(theDeck *Deck) {
 	url := "https://www.deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
 
@@ -105,19 +94,6 @@ func GetUserDeckPointer(theDeck *Deck) {
 	} else {
 		fmt.Printf("Deck id: %s\n", userDeck.DeckID)
 	}
-}
-
-func GetUserCards(deckID string) (string, string) {
-	fmt.Println("INSIDE GetUserCards")
-	url := "https://www.deckofcardsapi.com/api/deck/" + deckID + "/draw/?count=1"
-
-	err := GetJson(url, &userDeck)
-	if err != nil {
-		fmt.Printf("error getting deck: %s\n", err.Error())
-	}
-
-	fmt.Printf("User's card is: %s\n", userCard)
-	return userDeck.Cards[0].Suit, userDeck.Cards[0].Value
 }
 
 func GetUserCardsPointer(theDeck *Deck) (string, string) {
@@ -157,7 +133,7 @@ func HandleFinalHand(message *discordgo.MessageCreate, session *discordgo.Sessio
 	if strings.HasPrefix(message.Content, "??FinalHand") {
 		if _, exists := UsersDecks[message.Author.ID]; exists {
 			handList := HandOrder(StupidFuncNeedToRemove(message.Content))
-			output := ChooseHand(handList)
+			output := ChooseHand(handList, message.Author.ID)
 			_, err := session.ChannelMessageSend(message.ChannelID, output)
 			if err != nil {
 				fmt.Println("error ", err)
@@ -191,10 +167,10 @@ func HandleDraw(message *discordgo.MessageCreate, session *discordgo.Session) {
 					Value: value,
 				}
 
-				Hand = append(Hand, card)
+				UsersHandP[message.Author.ID] = append(UsersHandP[message.Author.ID], card)
 			}
 
-			_, err := session.ChannelMessageSend(message.ChannelID, "Your have drawn "+strconv.Itoa(len(Hand))+" cards")
+			_, err := session.ChannelMessageSend(message.ChannelID, "Your have drawn "+strconv.Itoa(len(UsersHandP[message.Author.ID]))+" cards")
 			if err != nil {
 				fmt.Println("error ", err)
 			}
@@ -249,13 +225,13 @@ func StupidFuncNeedToRemove(original string) string {
 
 var ChosenHand []Card
 
-func ChooseHand(cards []int) string {
+func ChooseHand(cards []int, userID string) string {
 	if cards != nil {
 		for _, element := range cards {
 			fmt.Println("Element: " + strconv.Itoa(element))
-			ChosenHand = append(ChosenHand, Hand[element])
+			ChosenHand = append(ChosenHand, UsersHandP[userID][element])
 		}
-		Hand = nil
+		UsersHandP[userID] = nil
 	}
 
 	var stringBuilder strings.Builder
@@ -286,14 +262,14 @@ func HandOrder(cardsDelimitedList string) []int {
 	return converted
 }
 
-func HandlePM(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Content == "??PM" {
+func HandlePM(session *discordgo.Session, message *discordgo.MessageCreate) {
+	if message.Content == "??PM" {
 		var stringBuilder strings.Builder
-		for index, element := range Hand {
+		for index, element := range UsersHandP[message.Author.ID] {
 			stringBuilder.WriteString("Your card is " + element.Suit + " " + element.Value + ". Card reference number = " + strconv.Itoa(index) + "\n")
 		}
 		// We create the private channel with the user who sent the message.
-		channel, err := s.UserChannelCreate(m.Author.ID)
+		channel, err := session.UserChannelCreate(message.Author.ID)
 		if err != nil {
 			// If an error occurred, we failed to create the channel.
 			//
@@ -303,14 +279,14 @@ func HandlePM(s *discordgo.Session, m *discordgo.MessageCreate) {
 			//    label us as abusing the endpoint, blocking us from opening
 			//    new ones.
 			fmt.Println("error creating channel:", err)
-			s.ChannelMessageSend(
-				m.ChannelID,
+			session.ChannelMessageSend(
+				message.ChannelID,
 				"Something went wrong while sending the DM!",
 			)
 			return
 		}
 		// Then we send the message through the channel we created.
-		_, err = s.ChannelMessageSend(channel.ID, stringBuilder.String())
+		_, err = session.ChannelMessageSend(channel.ID, stringBuilder.String())
 		if err != nil {
 			// If an error occurred, we failed to send the message.
 			//
@@ -318,8 +294,8 @@ func HandlePM(s *discordgo.Session, m *discordgo.MessageCreate) {
 			// user (highly unlikely as we just received a message) or
 			// the user disabled DM in their settings (more likely).
 			fmt.Println("error sending DM message:", err)
-			s.ChannelMessageSend(
-				m.ChannelID,
+			session.ChannelMessageSend(
+				message.ChannelID,
 				"Failed to send you a DM. "+
 					"Did you disable DM in your privacy settings?",
 			)
