@@ -35,29 +35,6 @@ var deck Deck
 var Token = ""
 var BotPrefix = "?"
 
-func GetCards(deckID string) {
-	url := "https://www.deckofcardsapi.com/api/deck/" + deckID + "/draw/?count=1"
-
-	err := GetJson(url, &deck)
-	if err != nil {
-		fmt.Printf("error getting deck: %s\n", err.Error())
-	} else {
-		card := deck.Cards[0].Value + " " + deck.Cards[0].Suit
-		fmt.Printf("Deck id: %s\n", card)
-	}
-}
-
-func GetDeck() {
-	url := "https://www.deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
-
-	err := GetJson(url, &deck)
-	if err != nil {
-		fmt.Printf("error getting deck: %s\n", err.Error())
-	} else {
-		fmt.Printf("Deck id: %s\n", deck.DeckID)
-	}
-}
-
 func GetJson(url string, target interface{}) error {
 	resp, err := client.Get(url)
 	if err != nil {
@@ -120,6 +97,17 @@ func GetUserDeck() {
 	}
 }
 
+func GetUserDeckPointer(theDeck *Deck) {
+	url := "https://www.deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
+
+	err := GetJson(url, theDeck)
+	if err != nil {
+		fmt.Printf("error getting deck: %s\n", err.Error())
+	} else {
+		fmt.Printf("Deck id: %s\n", userDeck.DeckID)
+	}
+}
+
 func GetUserCards(deckID string) (string, string) {
 	fmt.Println("INSIDE GetUserCards")
 	url := "https://www.deckofcardsapi.com/api/deck/" + deckID + "/draw/?count=1"
@@ -135,25 +123,37 @@ func GetUserCards(deckID string) (string, string) {
 
 var Hand []Card
 
-func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == BotId {
-		fmt.Println("author: ", m.Author.ID, " \n BotId: ", BotId, "\nmessge: ", m.Content)
+func messageHandler(session *discordgo.Session, message *discordgo.MessageCreate) {
+	if message.Author.ID == BotId {
+		fmt.Println("author: ", message.Author.ID, " \n BotId: ", BotId, "\nmessge: ", message.Content)
 		return
 	}
 
-	if m.Content == "??ping" {
-		_, err := s.ChannelMessageSend(m.ChannelID, "pong")
+	if message.Content == "??ping" {
+		_, err := session.ChannelMessageSend(message.ChannelID, "pong")
 		if err != nil {
 			fmt.Println("error ", err)
 		}
 	}
-	if m.Content == "??NewDeck" {
-		GetUserDeck()
-		_, err := s.ChannelMessageSend(m.ChannelID, "Your new deck is ready, it's ID is: "+userDeck.DeckID)
+	HandleNewDeck(message, session)
+	HandleDraw(message, session)
+	HandlePM(session, message)
+	HandleFinalHand(message, session)
+}
+
+func HandleFinalHand(m *discordgo.MessageCreate, s *discordgo.Session) {
+	if strings.HasPrefix(m.Content, "??FinalHand") {
+
+		handList := HandOrder(StupidFuncNeedToRemove(m.Content))
+		output := ChooseHand(handList)
+		_, err := s.ChannelMessageSend(m.ChannelID, output)
 		if err != nil {
 			fmt.Println("error ", err)
 		}
 	}
+}
+
+func HandleDraw(m *discordgo.MessageCreate, s *discordgo.Session) {
 	if strings.HasPrefix(m.Content, "??Draw") {
 		var howMany = 1
 
@@ -185,14 +185,18 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			fmt.Println("error ", err)
 		}
 	}
-	if m.Content == "??PM" {
-		PM(s, m)
-	}
-	if strings.HasPrefix(m.Content, "??FinalHand") {
+}
 
-		handList := HandOrder(StupidFuncNeedToRemove(m.Content))
-		output := ChooseHand(handList)
-		_, err := s.ChannelMessageSend(m.ChannelID, output)
+var UsersDecks map[string]*Deck
+
+func HandleNewDeck(message *discordgo.MessageCreate, session *discordgo.Session) {
+	if message.Content == "??NewDeck" {
+		if value, exists := UsersDecks[message.Author.ID]; exists {
+			fmt.Println(value)
+			GetUserDeckPointer(UsersDecks[message.Author.ID])
+		}
+		GetUserDeck()
+		_, err := session.ChannelMessageSend(message.ChannelID, "Your new deck is ready, it's ID is: "+userDeck.DeckID)
 		if err != nil {
 			fmt.Println("error ", err)
 		}
@@ -250,53 +254,77 @@ func HandOrder(cardsDelimitedList string) []int {
 	return converted
 }
 
-func PM(s *discordgo.Session, m *discordgo.MessageCreate) {
-	var stringBuilder strings.Builder
-	for index, element := range Hand {
-		stringBuilder.WriteString("Your card is " + element.Suit + " " + element.Value + ". Card reference number = " + strconv.Itoa(index) + "\n")
+func HandlePM(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Content == "??PM" {
+		var stringBuilder strings.Builder
+		for index, element := range Hand {
+			stringBuilder.WriteString("Your card is " + element.Suit + " " + element.Value + ". Card reference number = " + strconv.Itoa(index) + "\n")
+		}
+		// We create the private channel with the user who sent the message.
+		channel, err := s.UserChannelCreate(m.Author.ID)
+		if err != nil {
+			// If an error occurred, we failed to create the channel.
+			//
+			// Some common causes are:
+			// 1. We don't share a server with the user (not possible here).
+			// 2. We opened enough DM channels quickly enough for Discord to
+			//    label us as abusing the endpoint, blocking us from opening
+			//    new ones.
+			fmt.Println("error creating channel:", err)
+			s.ChannelMessageSend(
+				m.ChannelID,
+				"Something went wrong while sending the DM!",
+			)
+			return
+		}
+		// Then we send the message through the channel we created.
+		_, err = s.ChannelMessageSend(channel.ID, stringBuilder.String())
+		if err != nil {
+			// If an error occurred, we failed to send the message.
+			//
+			// It may occur either when we do not share a server with the
+			// user (highly unlikely as we just received a message) or
+			// the user disabled DM in their settings (more likely).
+			fmt.Println("error sending DM message:", err)
+			s.ChannelMessageSend(
+				m.ChannelID,
+				"Failed to send you a DM. "+
+					"Did you disable DM in your privacy settings?",
+			)
+		}
 	}
-	// We create the private channel with the user who sent the message.
-	channel, err := s.UserChannelCreate(m.Author.ID)
-	if err != nil {
-		// If an error occurred, we failed to create the channel.
-		//
-		// Some common causes are:
-		// 1. We don't share a server with the user (not possible here).
-		// 2. We opened enough DM channels quickly enough for Discord to
-		//    label us as abusing the endpoint, blocking us from opening
-		//    new ones.
-		fmt.Println("error creating channel:", err)
-		s.ChannelMessageSend(
-			m.ChannelID,
-			"Something went wrong while sending the DM!",
-		)
-		return
-	}
-	// Then we send the message through the channel we created.
-	_, err = s.ChannelMessageSend(channel.ID, stringBuilder.String())
-	if err != nil {
-		// If an error occurred, we failed to send the message.
-		//
-		// It may occur either when we do not share a server with the
-		// user (highly unlikely as we just received a message) or
-		// the user disabled DM in their settings (more likely).
-		fmt.Println("error sending DM message:", err)
-		s.ChannelMessageSend(
-			m.ChannelID,
-			"Failed to send you a DM. "+
-				"Did you disable DM in your privacy settings?",
-		)
-	}
+}
+
+func ShitPointer(theDeck *Deck) {
+	fmt.Println(theDeck.DeckID)
+	theDeck.Remaining = 11
 }
 
 func main() {
 	client = &http.Client{Timeout: 10 * time.Second}
 
-	GetDeck()
-	GetCards(deck.DeckID)
-	GetCards(deck.DeckID)
-	GetCards(deck.DeckID)
-	println(deck.Remaining)
+	deckMap := make(map[string]*Deck)
+
+	tests := Deck{
+		DeckID: "one",
+	}
+
+	deckMap["ONE"] = &tests
+	q := deckMap["ONE"]
+
+	ShitPointer(q)
+
+	testss := Deck{
+		DeckID: "two",
+	}
+
+	deckMap["TWO"] = &testss
+
+	ShitPointer(&testss)
+
+	fmt.Println(deckMap["ONE"].DeckID)
+	fmt.Println(deckMap["ONE"].Remaining)
+
 	// https://www.deckofcardsapi.com/api/deck/<<deck_id>>/draw/?count=2
 	Start()
 }
