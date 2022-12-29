@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -153,18 +154,31 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			fmt.Println("error ", err)
 		}
 	}
-	if m.Content == "??Draw" {
+	if strings.HasPrefix(m.Content, "??Draw") {
+		var howMany = 1
+
+		leng := len(m.Content)
+
+		fmt.Println("Length = " + strconv.Itoa(leng))
+
+		if len(m.Content) > 6 {
+			howMany, _ = strconv.Atoi(string(m.Content[6]))
+		}
+
 		fmt.Println("users deck: ", userDeck.DeckID)
 		if userDeck.DeckID == "" {
 			return
 		}
-		suit, value := GetUserCards(userDeck.DeckID)
-		card := Card{
-			Suit:  suit,
-			Value: value,
-		}
 
-		Hand = append(Hand, card)
+		for i := 0; i < howMany; i++ {
+			suit, value := GetUserCards(userDeck.DeckID)
+			card := Card{
+				Suit:  suit,
+				Value: value,
+			}
+
+			Hand = append(Hand, card)
+		}
 
 		_, err := s.ChannelMessageSend(m.ChannelID, "Your have drawn "+strconv.Itoa(len(Hand))+" cards")
 		if err != nil {
@@ -174,8 +188,9 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "??PM" {
 		PM(s, m)
 	}
-	if m.Content == "??FinalHand" {
-		handList := HandOrder("1 , 2")
+	if strings.HasPrefix(m.Content, "??FinalHand") {
+
+		handList := HandOrder(StupidFuncNeedToRemove(m.Content))
 		output := ChooseHand(handList)
 		_, err := s.ChannelMessageSend(m.ChannelID, output)
 		if err != nil {
@@ -184,11 +199,24 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
+func StupidFuncNeedToRemove(original string) string {
+	var re = regexp.MustCompile(`(?i)(\d)`)
+
+	var stringBuilder strings.Builder
+	for i, match := range re.FindAllString(original, -1) {
+		stringBuilder.WriteString(match + ",")
+		fmt.Println(match, "found at index", i)
+	}
+	fmt.Println("final built string " + stringBuilder.String())
+	return stringBuilder.String()
+}
+
 var ChosenHand []Card
 
 func ChooseHand(cards []int) string {
 	if cards != nil {
 		for _, element := range cards {
+			fmt.Println("Element: " + strconv.Itoa(element))
 			ChosenHand = append(ChosenHand, Hand[element])
 		}
 		Hand = nil
@@ -203,14 +231,21 @@ func ChooseHand(cards []int) string {
 }
 
 func HandOrder(cardsDelimitedList string) []int {
+	fmt.Println("Just endered HandOrder. CardsDelimitedList is: " + cardsDelimitedList)
+	cardsDelimitedList = cardsDelimitedList[:len(cardsDelimitedList)-1]
+	fmt.Println("Just fucked with string. CardsDelimitedList is: " + cardsDelimitedList)
 	inputSliced := strings.Split(cardsDelimitedList, ",")
 	converted := make([]int, len(inputSliced))
 	for index, value := range inputSliced {
-		output, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			fmt.Println("Theres a fucking error, mate: " + err.Error())
+		fmt.Println(len(strings.TrimSpace(value)))
+		if len(strings.TrimSpace(value)) > 0 {
+			fmt.Println("Index: " + strconv.Itoa(index) + " Value: " + value)
+			output, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil {
+				fmt.Println("Theres a fucking error, mate: " + err.Error())
+			}
+			converted[index] = output
 		}
-		converted[index] = output
 	}
 	return converted
 }
